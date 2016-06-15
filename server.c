@@ -195,11 +195,6 @@ JNIEXPORT jint JNICALL Java_org_servalproject_servaldna_ServalDCommand_server(
     }
   }
   
-  if (keyring_seed(keyring) == -1){
-    Throw(env, "java/lang/IllegalStateException", "Failed to seed keyring");
-    goto end;
-  }
-  
   if (server_env){
     Throw(env, "java/lang/IllegalStateException", "Server java env variable already set");
     goto end;
@@ -320,7 +315,7 @@ static int server_bind()
   if (httpd_server_start(config.rhizome.http.port, config.rhizome.http.port + HTTPD_PORT_RANGE)==-1) {
     serverMode = 0;
     return -1;
-  } 
+  }
 
   /* For testing, it can be very helpful to delay the start of the server process, for example to
    * check that the start/stop logic is robust.
@@ -368,7 +363,6 @@ static void server_loop()
     const char *ppath = server_pidfile_path();
     unlink(ppath);
   }
-  serverMode = 0;
 }
 
 static int server()
@@ -659,6 +653,8 @@ static void serverCleanUp()
   dna_helper_shutdown();
   overlay_interface_close_all();
   overlay_mdp_clean_socket_files();
+  release_my_subscriber();
+  serverMode = 0;
   clean_proc();
 }
 
@@ -728,10 +724,6 @@ static int app_server_start(const struct cli_parsed *parsed, struct cli_context 
     keyring = keyring_open_instance_cli(parsed);
     if (!keyring)
       RETURN(WHY("Could not open keyring file"));
-    if (keyring_seed(keyring) == -1) {
-      WHY("Could not seed keyring");
-      goto exit;
-    }
     if (foregroundP) {
       ret = server();
       goto exit;
@@ -850,7 +842,6 @@ static int app_server_start(const struct cli_parsed *parsed, struct cli_context 
     sleep_ms(milliseconds);
   }
 exit:
-  serverMode = 0;
   keyring_free(keyring);
   keyring = NULL;
   RETURN(ret);

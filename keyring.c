@@ -291,10 +291,25 @@ static void add_subscriber(keyring_identity *id)
 {
   id->subscriber = find_subscriber(id->box_pk->binary, SID_SIZE, 1);
   if (id->subscriber) {
-    // TODO flag for unroutable identities...
+    // TODO flag for unroutable identities...?
     if (id->subscriber->reachable == REACHABLE_NONE)
       id->subscriber->reachable = REACHABLE_SELF;
     id->subscriber->identity = id;
+
+    if (id->sign_pk){
+      // copy our signing key, so we can pass it to peers
+      bcopy(id->sign_pk, id->subscriber->sas_public, sizeof id->subscriber->sas_public);
+      id->subscriber->sas_valid = 1;
+
+      keypair *kp = id->keypairs;
+      while(kp){
+	if (kp->type == KEYTYPE_CRYPTOCOMBINED){
+	  id->subscriber->sas_combined = 1;
+	  break;
+	}
+	kp = kp->next;
+      }
+    }
   }
 }
 
@@ -1433,9 +1448,10 @@ static keyring_identity *keyring_new_identity()
 
 keyring_identity *keyring_inmemory_identity(){
   keyring_identity *id = keyring_new_identity();
-  keyring_finalise_identity(NULL, id);
-  if (id)
+  if (id){
+    keyring_finalise_identity(NULL, id);
     add_subscriber(id);
+  }
   return id;
 }
 
@@ -1712,7 +1728,13 @@ static int keyring_store_sas(struct internal_mdp_header *header, struct overlay_
 
   if (crypto_sign_verify_detached(compactsignature, header->source->sid.binary, SID_SIZE, sas_public))
     return WHY("SID:SAS mapping verification signature does not verify");
-  
+
+  // test if the sas key can be used to derive the sid
+  sid_t sid;
+  if (crypto_sign_ed25519_pk_to_curve25519(sid.binary, sas_public)==0
+    && memcmp(&sid, &header->source->sid, sizeof sid) == 0)
+    header->source->sas_combined=1;
+
   /* now store it */
   bcopy(sas_public, header->source->sas_public, SAS_SIZE);
   header->source->sas_valid=1;
